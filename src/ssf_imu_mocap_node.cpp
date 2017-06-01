@@ -1,6 +1,8 @@
 #include "ros/ros.h"
 #include "sensor_msgs/Imu.h"
 #include <Eigen/Dense>
+#include "qualisys/Subject.h"
+
 
 
 using namespace Eigen;
@@ -12,7 +14,7 @@ Vector3d p;
 Vector3d v;
 MatrixXd P(13,13);
 MatrixXd Q(9,9);
-MatrixXd R(4,4);
+MatrixXd R(7,7);
 
 void chatterCallback(const sensor_msgs::Imu msg_imu){
   //ROS_INFO("I heard: [%f]", msg_imu.linear_acceleration.x);
@@ -34,7 +36,7 @@ void chatterCallback(const sensor_msgs::Imu msg_imu){
   2*(q[1]*q[2]-q[0]*q[3]),pow(q[0],2)-pow(q[1],2)+pow(q[2],2)-pow(q[3],2),2*(q[2]*q[3]+q[0]*q[1]),
   2*(q[1]*q[3]+q[0]*q[2]),2*(q[2]*q[3]-q[0]*q[1]),pow(q[0],2)-pow(q[1],2)-pow(q[2],2)+pow(q[3],2);
 
-  std::cout << "Rbe \n"<<Rbe << std::endl;
+//  std::cout << "Rbe \n"<<Rbe << std::endl;
 
 
   Vector3d g;
@@ -82,60 +84,43 @@ void chatterCallback(const sensor_msgs::Imu msg_imu){
   0, 0, 0, 0, 0, 0, 0, 0, 1;
 
   P=(MatrixXd::Identity(13,13)+F*dt)*P*(MatrixXd::Identity(13,13)+F*dt).transpose()+pow(dt,2)*G*Q*G.transpose();
+  std::cout << "positions\n"<<p << std::endl;
+  std::cout << "orientation\n"<<q << std::endl;
+}
 
 
-
+void mocapCallback(qualisys::Subject mocap_msg){
   //Update part
-  MatrixXd H(4,13);
+  MatrixXd H(7,13);
 
-  H<<0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0;
-
-
-  //Calculate the angle by the accelerometer
-
-
+  H<<1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+     0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+     0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+     0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+     0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+     0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+     0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0;
 
 
 
 
+  VectorXd error(7);
+  error<<p[0]-mocap_msg.position.x,
+         p[1]-mocap_msg.position.y,
+         p[2]-mocap_msg.position.z,
+         q[0]-mocap_msg.orientation.w,
+         q[1]-mocap_msg.orientation.x,
+         q[2]-mocap_msg.orientation.y,
+         q[3]-mocap_msg.orientation.z;
 
-
-  double norm_a;
-  norm_a=pow(pow(a[0],2)+pow(a[1],2)+pow(a[2],2),0.5);
-  a<<a[0]/norm_a,a[1]/norm_a,a[2]/norm_a;
-
-  aw=Rbe.inverse()*a;
-
-  // Cross product with the gravity
-  Vector3d Caw;
-  Caw<<-aw[1],aw[0],0;
-
-  Vector3d Ca;
-  Ca=Rbe*Caw;
-
-  Vector4d q_corr;
-
-  q_corr<<q[0],q[1]-Ca[0],q[2]-Ca[1],q[3]-Ca[2];
-
-//pow(1-(pow(q[1]-Ca[0],2)+pow(q[2]-Ca[1],2)+pow(q[3]-Ca[2],2)),0.5)
-
-  norm_q=pow(pow(q_corr[0],2)+pow(q_corr[1],2)+pow(q_corr[2],2)+pow(q_corr[3],2),0.5);
-  q_corr<<q_corr[0]/norm_q,q_corr[1]/norm_q,q_corr[2]/norm_q,q_corr[3]/norm_q;
-  //std::cout << "q_corr \n " << q_corr << std::endl;
-
-
- // TODO Error on the dimension of K 13,4
-  MatrixXd K(7,4);
+  MatrixXd K(13,7);
   K=P*H.transpose()*(H*P*H.transpose()+R).inverse();
 
 
   //Update
   VectorXd x(13);
   x<<p[0],p[1],p[2],v[0],v[1],v[2],q[0],q[1],q[2],q[3],b_w[0],b_w[1],b_w[2];
-  x=x+K*(q-q_corr);
+  x=x-K*error;
 
 
   p<<x[0],x[1],x[2];
@@ -145,6 +130,7 @@ void chatterCallback(const sensor_msgs::Imu msg_imu){
 
   P=P-K*H*P;
 
+  double norm_q;
   //Normalize Quaternion
   norm_q=pow(pow(q[0],2)+pow(q[1],2)+pow(q[2],2)+pow(q[3],2),0.5);
   q<<q[0]/norm_q,q[1]/norm_q,q[2]/norm_q,q[3]/norm_q;
@@ -160,6 +146,7 @@ void chatterCallback(const sensor_msgs::Imu msg_imu){
 
   std::cout << "Euler \n " << EulerAngles << std::endl;
 
+  std::cout << "orientation\n"<<q << std::endl;
 
   std::cout << "speeds\n"<<v << std::endl;
   std::cout << "positions\n"<<p << std::endl;
@@ -178,10 +165,17 @@ int main(int argc, char **argv){
   P<<MatrixXd::Identity(13,13)*0.1;
   // Covariance gyro and gyro biais
   Q<<MatrixXd::Identity(9,9)*0.001;
-  // Coariance angle of the accelerometer
-  R<<MatrixXd::Identity(4,4)*1.0;
+  // Coariance position and the angle of the mocap system
+  R<<0.001,0,0,0,0,0,0,
+     0,0.001,0,0,0,0,0,
+     0,0,0.001,0,0,0,0,
+     0,0,0,0.1,0,0,0,
+     0,0,0,0,0.1,0,0,
+     0,0,0,0,0,0.1,0,
+     0,0,0,0,0,0,0.1;
 
   ros::Subscriber sub = n.subscribe("imu/data", 1000, chatterCallback);
+  ros::Subscriber sub1 = n.subscribe("qualisys/imu", 1000, mocapCallback);
   ros::spin();
 
   return 0;

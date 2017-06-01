@@ -5,6 +5,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   sensor_msgs
+  qualisys
 )
 
 catkin_package(
@@ -41,3 +42,7 @@ target_link_libraries(ssf_imu_node   ${catkin_LIBRARIES} )
 add_executable(ssf_imu_position_node src/ssf_imu_position_node.cpp)
 add_dependencies(ssf_imu_position_node ssf_imu_position_generate_messages_cpp)
 target_link_libraries(ssf_imu_position_node   ${catkin_LIBRARIES} )
+
+add_executable(ssf_imu_mocap_node src/ssf_imu_mocap_node.cpp)
+add_dependencies(ssf_imu_mocap_node ssf_imu_mocap_generate_messages_cpp)
+target_link_libraries(ssf_imu_mocap_node   ${catkin_LIBRARIES} )
